@@ -1,6 +1,5 @@
 """
-Implementação COMPLETA de métricas customizadas para avaliação de prompts.
-RESOLUÇÃO DO DESAFIO
+Módulo de métricas customizadas para avaliação de prompts.
 
 Este módulo implementa métricas gerais e específicas para Bug to User Story:
 
@@ -17,7 +16,7 @@ MÉTRICAS ESPECÍFICAS PARA BUG TO USER STORY (4):
 
 Suporta múltiplos providers de LLM:
 - OpenAI (gpt-4o, gpt-4o-mini)
-- Google Gemini (gemini-1.5-flash, gemini-1.5-pro)
+- Google Gemini (gemini-2.5-flash)
 
 Configure o provider no arquivo .env através da variável LLM_PROVIDER.
 """

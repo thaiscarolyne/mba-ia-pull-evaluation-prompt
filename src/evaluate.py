@@ -12,7 +12,7 @@ Este script:
 
 Suporta múltiplos providers de LLM:
 - OpenAI (gpt-4o, gpt-4o-mini)
-- Google Gemini (gemini-1.5-flash, gemini-1.5-pro)
+- Google Gemini (gemini-2.5-flash)
 
 Configure o provider no arquivo .env através da variável LLM_PROVIDER.
 """
@@ -199,7 +199,7 @@ def evaluate_prompt(
 
         print("   Avaliando exemplos...")
 
-        for i, example in enumerate(examples[:10], 1):
+        for i, example in enumerate(examples, 1):
             result = evaluate_prompt_on_example(prompt_template, example, llm)
 
             if result["answer"]:
@@ -211,7 +211,7 @@ def evaluate_prompt(
                 clarity_scores.append(clarity["score"])
                 precision_scores.append(precision["score"])
 
-                print(f"      [{i}/{min(10, len(examples))}] F1:{f1['score']:.2f} Clarity:{clarity['score']:.2f} Precision:{precision['score']:.2f}")
+                print(f"      [{i}/{len(examples)}] F1:{f1['score']:.2f} Clarity:{clarity['score']:.2f} Precision:{precision['score']:.2f}")
 
         avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
         avg_clarity = sum(clarity_scores) / len(clarity_scores) if clarity_scores else 0.0
@@ -244,11 +244,11 @@ def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
     print(f"Prompt: {prompt_name}")
     print("=" * 50)
 
-    print("\nMétricas LangSmith:")
+    print("\nMétricas Derivadas:")
     print(f"  - Helpfulness: {format_score(scores['helpfulness'], threshold=0.9)}")
     print(f"  - Correctness: {format_score(scores['correctness'], threshold=0.9)}")
 
-    print("\nMétricas Customizadas:")
+    print("\nMétricas Base:")
     print(f"  - F1-Score: {format_score(scores['f1_score'], threshold=0.9)}")
     print(f"  - Clarity: {format_score(scores['clarity'], threshold=0.9)}")
     print(f"  - Precision: {format_score(scores['precision'], threshold=0.9)}")
@@ -259,12 +259,16 @@ def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
     print(f"📊 MÉDIA GERAL: {average_score:.4f}")
     print("-" * 50)
 
-    passed = average_score >= 0.9
+    all_above_threshold = all(score >= 0.9 for score in scores.values())
+    passed = all_above_threshold and average_score >= 0.9
 
     if passed:
-        print(f"\n✅ STATUS: APROVADO (média >= 0.9)")
+        print(f"\n✅ STATUS: APROVADO - Todas as métricas >= 0.9")
     else:
-        print(f"\n❌ STATUS: REPROVADO (média < 0.9)")
+        print(f"\n❌ STATUS: REPROVADO")
+        failed_metrics = [name for name, score in scores.items() if score < 0.9]
+        if failed_metrics:
+            print(f"⚠️  Métricas abaixo de 0.9: {', '.join(failed_metrics)}")
         print(f"⚠️  Média atual: {average_score:.4f} | Necessário: 0.9000")
 
     return passed
@@ -291,7 +295,7 @@ def main():
         return 1
 
     client = Client()
-    project_name = os.getenv("LANGCHAIN_PROJECT", "prompt-optimization-challenge-resolved")
+    project_name = os.getenv("LANGSMITH_PROJECT", "prompt-optimization-challenge-resolved")
 
     jsonl_path = "datasets/bug_to_user_story.jsonl"
 
@@ -310,8 +314,14 @@ def main():
     print("Certifique-se de ter feito push dos prompts antes de avaliar:")
     print("  python src/push_prompts.py\n")
 
+    username = os.getenv("USERNAME_LANGSMITH_HUB", "")
+    if not username:
+        print("❌ USERNAME_LANGSMITH_HUB não configurada no .env")
+        print("   Configure seu username do LangSmith Hub antes de continuar.")
+        return 1
+
     prompts_to_evaluate = [
-        "bug_to_user_story_v2",
+        f"{username}/bug_to_user_story_v2",
     ]
 
     all_passed = True
@@ -362,7 +372,7 @@ def main():
     print(f"Reprovados: {sum(1 for r in results_summary if not r['passed'])}\n")
 
     if all_passed:
-        print("✅ Todos os prompts atingiram média >= 0.9!")
+        print("✅ Todos os prompts atingiram todas as métricas >= 0.9!")
         print(f"\n✓ Confira os resultados em:")
         print(f"  https://smith.langchain.com/projects/{project_name}")
         print("\nPróximos passos:")
@@ -371,7 +381,7 @@ def main():
         print("3. Faça commit e push para o GitHub")
         return 0
     else:
-        print("⚠️  Alguns prompts não atingiram média >= 0.9")
+        print("⚠️  Alguns prompts não atingiram todas as métricas >= 0.9")
         print("\nPróximos passos:")
         print("1. Refatore os prompts com score baixo")
         print("2. Faça push novamente: python src/push_prompts.py")

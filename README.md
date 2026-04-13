@@ -7,47 +7,57 @@ Você deve entregar um software capaz de:
 1. **Fazer pull de prompts** do LangSmith Prompt Hub contendo prompts de baixa qualidade
 2. **Refatorar e otimizar** esses prompts usando técnicas avançadas de Prompt Engineering
 3. **Fazer push dos prompts otimizados** de volta ao LangSmith
-4. **Avaliar a qualidade** através de métricas customizadas (F1-Score, Clarity, Precision)
+4. **Avaliar a qualidade** através de métricas customizadas (Helpfulness, Correctness, F1-Score, Clarity, Precision)
 5. **Atingir pontuação mínima** de 0.9 (90%) em todas as métricas de avaliação
 
 ---
 
 ## Exemplo no CLI
 
+**Exemplo de prompt RUIM (v1) — apenas ilustrativo, para você entender o ponto de partida:**
+
+```
+==================================================
+Prompt: {seu_username}/bug_to_user_story_v1
+==================================================
+
+Métricas Derivadas:
+  - Helpfulness: 0.45 ✗
+  - Correctness: 0.52 ✗
+
+Métricas Base:
+  - F1-Score: 0.48 ✗
+  - Clarity: 0.50 ✗
+  - Precision: 0.46 ✗
+
+❌ STATUS: REPROVADO
+⚠️  Métricas abaixo de 0.9: helpfulness, correctness, f1_score, clarity, precision
+```
+
+**Exemplo de prompt OTIMIZADO (v2) — seu objetivo é chegar aqui:**
+
 ```bash
-# Executar o pull dos prompts ruins do LangSmith
-python src/pull_prompts.py
-
-# Executar avaliação inicial (prompts ruins)
-python src/evaluate.py
-
-Executando avaliação dos prompts...
-================================
-Prompt: support_bot_v1a
-- Helpfulness: 0.45
-- Correctness: 0.52
-- F1-Score: 0.48
-- Clarity: 0.50
-- Precision: 0.46
-================================
-Status: FALHOU - Métricas abaixo do mínimo de 0.9
-
 # Após refatorar os prompts e fazer push
 python src/push_prompts.py
 
-# Executar avaliação final (prompts otimizados)
+# Executar avaliação
 python src/evaluate.py
 
 Executando avaliação dos prompts...
-================================
-Prompt: support_bot_v2_optimized
-- Helpfulness: 0.94
-- Correctness: 0.96
-- F1-Score: 0.93
-- Clarity: 0.95
-- Precision: 0.92
-================================
-Status: APROVADO ✓ - Todas as métricas atingiram o mínimo de 0.9
+==================================================
+Prompt: {seu_username}/bug_to_user_story_v2
+==================================================
+
+Métricas Derivadas:
+  - Helpfulness: 0.94 ✓
+  - Correctness: 0.96 ✓
+
+Métricas Base:
+  - F1-Score: 0.93 ✓
+  - Clarity: 0.95 ✓
+  - Precision: 0.92 ✓
+
+✅ STATUS: APROVADO - Todas as métricas >= 0.9
 ```
 ---
 
@@ -91,18 +101,18 @@ from langchain_google_genai import ChatGoogleGenerativeAI  # LLM Gemini
 
 ## Requisitos
 
-### 1. Pull dos Prompt inicial do LangSmith
+### 1. Pull do Prompt inicial do LangSmith
 
 O repositório base já contém prompts de **baixa qualidade** publicados no LangSmith Prompt Hub. Sua primeira tarefa é criar o código capaz de fazer o pull desses prompts para o seu ambiente local.
 
 **Tarefas:**
 
-1. Configurar suas credenciais do LangSmith no arquivo `.env` (conforme instruções no `README.md` do repositório base)
-2. Acessar o script `src/pull_prompts.py` que:
+1. Configurar suas credenciais do LangSmith no arquivo `.env` (conforme o arquivo `.env.example`)
+2. Implementar o script `src/pull_prompts.py` (esqueleto já existe) que:
    - Conecta ao LangSmith usando suas credenciais
-   - Faz pull do seguinte prompts:
+   - Faz pull do seguinte prompt:
      - `leonanluppi/bug_to_user_story_v1`
-   - Salva os prompts localmente em `prompts/raw_prompts.yml`
+   - Salva o prompt localmente em `prompts/bug_to_user_story_v1.yml`
 
 ---
 
@@ -114,8 +124,7 @@ Agora que você tem o prompt inicial, é hora de refatorá-lo usando as técnica
 
 1. Analisar o prompt em `prompts/bug_to_user_story_v1.yml`
 2. Criar um novo arquivo `prompts/bug_to_user_story_v2.yml` com suas versões otimizadas
-3. Aplicar **pelo menos duas** das seguintes técnicas:
-   - **Few-shot Learning**: Fornecer exemplos claros de entrada/saída
+3. Aplicar **obrigatoriamente Few-shot Learning** (exemplos claros de entrada/saída) e **pelo menos uma** das seguintes técnicas adicionais:
    - **Chain of Thought (CoT)**: Instruir o modelo a "pensar passo a passo"
    - **Tree of Thought**: Explorar múltiplos caminhos de raciocínio
    - **Skeleton of Thought**: Estruturar a resposta em etapas claras
@@ -127,7 +136,7 @@ Agora que você tem o prompt inicial, é hora de refatorá-lo usando as técnica
 
 - Deve conter **instruções claras e específicas**
 - Deve incluir **regras explícitas** de comportamento
-- Deve ter **exemplos de entrada/saída** (Few-shot)
+- Deve ter **exemplos de entrada/saída** (Few-shot) — **obrigatório**
 - Deve incluir **tratamento de edge cases**
 - Deve usar **System vs User Prompt** adequadamente
 
@@ -139,13 +148,13 @@ Após refatorar os prompts, você deve enviá-los de volta ao LangSmith Prompt H
 
 **Tarefas:**
 
-1. Criar o script `src/push_prompts.py` que:
+1. Implementar o script `src/push_prompts.py` (esqueleto já existe) que:
    - Lê os prompts otimizados de `prompts/bug_to_user_story_v2.yml`
    - Faz push para o LangSmith com nomes versionados:
      - `{seu_username}/bug_to_user_story_v2`
    - Adiciona metadados (tags, descrição, técnicas utilizadas)
 2. Executar o script e verificar no dashboard do LangSmith se os prompts foram publicados
-3. Deixa-lo público
+3. Deixá-lo público
 
 ---
 
@@ -159,15 +168,16 @@ Após refatorar os prompts, você deve enviá-los de volta ao LangSmith Prompt H
 ### Critério de Aprovação:
 
 ```
-- Tone Score >= 0.9
-- Acceptance Criteria Score >= 0.9
-- User Story Format Score >= 0.9
-- Completeness Score >= 0.9
+- Helpfulness >= 0.9
+- Correctness >= 0.9
+- F1-Score >= 0.9
+- Clarity >= 0.9
+- Precision >= 0.9
 
-MÉDIA das 4 métricas >= 0.9
+MÉDIA das 5 métricas >= 0.9
 ```
 
-**IMPORTANTE:** TODAS as 4 métricas devem estar >= 0.9, não apenas a média!
+**IMPORTANTE:** TODAS as 5 métricas devem estar >= 0.9, não apenas a média!
 
 ### 5. Testes de Validação
 
@@ -193,45 +203,49 @@ pytest tests/test_prompts.py
 Faça um fork do repositório base: **[Clique aqui para o template](https://github.com/devfullcycle/mba-ia-pull-evaluation-prompt)**
 
 ```
-desafio-prompt-engineer/
+mba-ia-pull-evaluation-prompt/
 ├── .env.example              # Template das variáveis de ambiente
 ├── requirements.txt          # Dependências Python
 ├── README.md                 # Sua documentação do processo
 │
 ├── prompts/
-│   ├── bug_to_user_story_v1.yml       # Prompt inicial (após pull)
-│   └── bug_to_user_story_v2.yml # Seu prompt otimizado
+│   ├── bug_to_user_story_v1.yml  # Prompt inicial (já incluso)
+│   └── bug_to_user_story_v2.yml  # Seu prompt otimizado (criar)
+│
+├── datasets/
+│   └── bug_to_user_story.jsonl   # 15 exemplos de bugs (já incluso)
 │
 ├── src/
-│   ├── pull_prompts.py       # Pull do LangSmith
-│   ├── push_prompts.py       # Push ao LangSmith
-│   ├── evaluate.py           # Avaliação automática
-│   ├── metrics.py            # 4 métricas implementadas
-│   ├── dataset.py            # 15 exemplos de bugs
-│   └── utils.py              # Funções auxiliares
+│   ├── pull_prompts.py       # Pull do LangSmith (implementar)
+│   ├── push_prompts.py       # Push ao LangSmith (implementar)
+│   ├── evaluate.py           # Avaliação automática (pronto)
+│   ├── metrics.py            # 5 métricas implementadas (pronto)
+│   └── utils.py              # Funções auxiliares (pronto)
 │
 ├── tests/
-│   └── test_prompts.py       # Testes de validação
+│   └── test_prompts.py       # Testes de validação (implementar)
 │
 ```
 
-**O que você vai criar:**
+**O que você deve implementar:**
 
-- `prompts/bug_to_user_story_v2.yml` - Seu prompt otimizado
-- `tests/test_prompts.py` - Seus testes de validação
-- `src/pull_prompt.py` Script de pull do repositório da fullcycle
-- `src/push_prompt.py` Script de push para o seu repositório
-- `README.md` - Documentação do seu processo de otimização
+- `prompts/bug_to_user_story_v2.yml` — Criar do zero com seu prompt otimizado
+- `src/pull_prompts.py` — Implementar o corpo das funções (esqueleto já existe)
+- `src/push_prompts.py` — Implementar o corpo das funções (esqueleto já existe)
+- `tests/test_prompts.py` — Implementar os 6 testes de validação (esqueleto já existe)
+- `README.md` — Documentar seu processo de otimização
 
-**O que já vem pronto:**
+**O que já vem pronto (não alterar):**
 
-- Dataset com 15 bugs (5 simples, 7 médios, 3 complexos)
-- 4 métricas específicas para Bug to User Story
+- `src/evaluate.py` — Script de avaliação completo
+- `src/metrics.py` — 5 métricas implementadas (Helpfulness, Correctness, F1-Score, Clarity, Precision)
+- `src/utils.py` — Funções auxiliares
+- `datasets/bug_to_user_story.jsonl` — Dataset com 15 bugs (5 simples, 7 médios, 3 complexos)
 - Suporte multi-provider (OpenAI e Gemini)
 
 ## Repositórios úteis
 
-- [Repositório boilerplate do desafio](https://github.com/devfullcycle/desafio-prompt-engineer/)
+- [Repositório boilerplate do desafio](https://github.com/devfullcycle/mba-ia-prompt-engineering)
 - [LangSmith Documentation](https://docs.smith.langchain.com/)
 - [Prompt Engineering Guide](https://www.promptingguide.ai/)
 
@@ -265,7 +279,7 @@ Edite manualmente o arquivo `prompts/bug_to_user_story_v2.yml` aplicando as téc
 python src/push_prompts.py
 ```
 
-### 5. Executar avaliação
+### 4. Executar avaliação
 
 ```bash
 python src/evaluate.py
@@ -305,8 +319,7 @@ python src/evaluate.py
    - Link público (ou screenshots) do dashboard do LangSmith
    - Devem estar visíveis:
 
-     - Dataset de avaliação com ≥ 20 exemplos
-     - Execuções dos prompts v1 (ruins) com notas baixas
+     - Dataset de avaliação com 15 exemplos
      - Execuções dos prompts v2 (otimizados) com notas ≥ 0.9
      - Tracing detalhado de pelo menos 3 exemplos
 
@@ -316,7 +329,7 @@ python src/evaluate.py
 
 - **Lembre-se da importância da especificidade, contexto e persona** ao refatorar prompts
 - **Use Few-shot Learning com 2-3 exemplos claros** para melhorar drasticamente a performance
-- **Chain of Thought (CoT)** é excelente para tarefas que exigem raciocínio complexo (como análise de PRs)
+- **Chain of Thought (CoT)** é excelente para tarefas que exigem raciocínio complexo (como análise de bugs)
 - **Use o Tracing do LangSmith** como sua principal ferramenta de debug - ele mostra exatamente o que o LLM está "pensando"
 - **Não altere os datasets de avaliação** - apenas os prompts em `prompts/bug_to_user_story_v2.yml`
 - **Itere, itere, itere** - é normal precisar de 3-5 iterações para atingir 0.9 em todas as métricas

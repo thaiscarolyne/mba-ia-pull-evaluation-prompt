@@ -1,4 +1,7 @@
-# Este arquivo contém os prompt inicial que você deve otimizar
+# Este arquivo contém o prompt inicial de BAIXA QUALIDADE que você deve otimizar.
+# Os problemas são intencionais (ex: {bug_report} duplicado no system e user prompt,
+# instruções vagas, falta de exemplos, sem persona definida).
+# Use-o como base para entender o que precisa ser melhorado na v2.
 
 bug_to_user_story_v1:
   description: "Prompt para converter relatos de bugs em User Stories"
