@@ -20,10 +20,11 @@ Configure o provider no arquivo .env através da variável LLM_PROVIDER.
 import os
 import sys
 import json
-from typing import List, Dict, Any
+from functools import lru_cache
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from langsmith import Client
+from langsmith import Client, evaluate
 from langchain import hub
 from langchain_core.prompts import ChatPromptTemplate
 from utils import check_env_vars, format_score, print_section_header, get_llm as get_configured_llm
@@ -239,6 +240,107 @@ def evaluate_prompt(
         }
 
 
+def publish_experiment_to_langsmith(
+    prompt_name: str,
+    dataset_name: str,
+    client: Client,
+) -> Optional[str]:
+    """
+    Publica um experimento no LangSmith Hub usando exatamente as 5 métricas
+    custom de src/metrics.py (3 base + 2 derivadas).
+
+    Cada métrica-base (`f1_score`, `clarity`, `precision`) é envolvida em um
+    evaluator com a assinatura `(run, example) -> {"key", "score"}` exigida pelo
+    `langsmith.evaluate(...)`. As métricas derivadas (`helpfulness`,
+    `correctness`) reutilizam as base via `lru_cache` para evitar chamar o LLM
+    juiz mais de uma vez por exemplo.
+    """
+    print(f"\n   Publicando experimento no LangSmith para '{prompt_name}'...")
+
+    prompt_template = hub.pull(prompt_name)
+
+    def target(inputs: dict) -> dict:
+        chain = prompt_template | get_llm()
+        response = chain.invoke(inputs)
+        return {"output": response.content}
+
+    @lru_cache(maxsize=None)
+    def _cached_f1(question: str, answer: str, reference: str) -> float:
+        return evaluate_f1_score(question, answer, reference)["score"]
+
+    @lru_cache(maxsize=None)
+    def _cached_clarity(question: str, answer: str, reference: str) -> float:
+        return evaluate_clarity(question, answer, reference)["score"]
+
+    @lru_cache(maxsize=None)
+    def _cached_precision(question: str, answer: str, reference: str) -> float:
+        return evaluate_precision(question, answer, reference)["score"]
+
+    def _extract_triplet(run, example) -> tuple:
+        question = example.inputs.get("bug_report", "") if example.inputs else ""
+        answer = run.outputs.get("output", "") if run.outputs else ""
+        reference = example.outputs.get("reference", "") if example.outputs else ""
+        return question, answer, reference
+
+    def f1_eval(run, example):
+        q, a, r = _extract_triplet(run, example)
+        return {"key": "f1_score", "score": _cached_f1(q, a, r)}
+
+    def clarity_eval(run, example):
+        q, a, r = _extract_triplet(run, example)
+        return {"key": "clarity", "score": _cached_clarity(q, a, r)}
+
+    def precision_eval(run, example):
+        q, a, r = _extract_triplet(run, example)
+        return {"key": "precision", "score": _cached_precision(q, a, r)}
+
+    def helpfulness_eval(run, example):
+        q, a, r = _extract_triplet(run, example)
+        score = (_cached_clarity(q, a, r) + _cached_precision(q, a, r)) / 2
+        return {"key": "helpfulness", "score": round(score, 4)}
+
+    def correctness_eval(run, example):
+        q, a, r = _extract_triplet(run, example)
+        score = (_cached_f1(q, a, r) + _cached_precision(q, a, r)) / 2
+        return {"key": "correctness", "score": round(score, 4)}
+
+    try:
+        results = evaluate(
+            target,
+            data=dataset_name,
+            evaluators=[
+                f1_eval,
+                clarity_eval,
+                precision_eval,
+                helpfulness_eval,
+                correctness_eval,
+            ],
+            experiment_prefix="bug_to_user_story_v2",
+            client=client,
+        )
+
+        experiment_name = getattr(results, "experiment_name", None)
+        if not experiment_name:
+            print("   ⚠️  Experimento publicado, mas LangSmith não retornou o nome.")
+            return None
+
+        try:
+            project = client.read_project(project_name=experiment_name)
+            url = getattr(project, "url", None)
+        except Exception:
+            url = None
+
+        print(f"   ✓ Experimento publicado: {experiment_name}")
+        if url:
+            print(f"   ✓ URL: {url}")
+
+        return url or experiment_name
+
+    except Exception as e:
+        print(f"   ⚠️  Falha ao publicar experimento no LangSmith: {e}")
+        return None
+
+
 def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
     print("\n" + "=" * 50)
     print(f"Prompt: {prompt_name}")
@@ -297,7 +399,7 @@ def main():
     client = Client()
     project_name = os.getenv("LANGSMITH_PROJECT", "prompt-optimization-challenge-resolved")
 
-    jsonl_path = "datasets/bug_to_user_story.jsonl"
+    jsonl_path = "../datasets/bug_to_user_story.jsonl"
 
     if not Path(jsonl_path).exists():
         print(f"❌ Arquivo de dataset não encontrado: {jsonl_path}")
@@ -337,10 +439,15 @@ def main():
             passed = display_results(prompt_name, scores)
             all_passed = all_passed and passed
 
+            experiment_url = publish_experiment_to_langsmith(
+                prompt_name, dataset_name, client
+            )
+
             results_summary.append({
                 "prompt": prompt_name,
                 "scores": scores,
-                "passed": passed
+                "passed": passed,
+                "experiment_url": experiment_url,
             })
 
         except Exception as e:
@@ -356,8 +463,10 @@ def main():
                     "clarity": 0.0,
                     "precision": 0.0
                 },
-                "passed": False
+                "passed": False,
+                "experiment_url": None,
             })
+
 
     print("\n" + "=" * 50)
     print("RESUMO FINAL")
@@ -371,10 +480,19 @@ def main():
     print(f"Aprovados: {sum(1 for r in results_summary if r['passed'])}")
     print(f"Reprovados: {sum(1 for r in results_summary if not r['passed'])}\n")
 
+    published_urls = [
+        (r["prompt"], r["experiment_url"])
+        for r in results_summary
+        if r.get("experiment_url")
+    ]
+    if published_urls:
+        print("✓ Experimentos publicados no LangSmith:")
+        for prompt_name, url in published_urls:
+            print(f"  - {prompt_name}: {url}")
+        print()
+
     if all_passed:
         print("✅ Todos os prompts atingiram todas as métricas >= 0.9!")
-        print(f"\n✓ Confira os resultados em:")
-        print(f"  https://smith.langchain.com/projects/{project_name}")
         print("\nPróximos passos:")
         print("1. Documente o processo no README.md")
         print("2. Capture screenshots das avaliações")

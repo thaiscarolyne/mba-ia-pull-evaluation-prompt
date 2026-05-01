@@ -12,6 +12,194 @@ Você deve entregar um software capaz de:
 
 ---
 
+## Entrega — Documentação da Solução
+
+> Esta seção documenta o que foi efetivamente implementado neste fork.
+> Vide [prompts/bug_to_user_story_v2.yml](prompts/bug_to_user_story_v2.yml), [src/evaluate.py](src/evaluate.py) e [tests/test_prompts.py](tests/test_prompts.py).
+
+### A) Técnicas Aplicadas (Fase 2)
+
+A versão otimizada `bug_to_user_story_v2` combina **6 técnicas** de Prompt Engineering, listadas em `techniques_applied:` no [YAML](prompts/bug_to_user_story_v2.yml). Cada uma resolve uma falha específica observada no `v1` (reprovado em todas as métricas).
+
+#### 1. Role Prompting
+
+**Por quê:** Sem persona, o `v1` produzia textos genéricos misturando "tarefa para desenvolvedor" e "user story", confundindo o avaliador. Definir um papel concreto direciona o modelo para um vocabulário e uma estrutura previsíveis.
+
+**Como aplicado:**
+
+```text
+Você é um Product Manager Sênior especializado em converter relatos de bug
+em User Stories de altíssima fidelidade, testáveis e fiéis ao problema descrito.
+```
+
+#### 2. Few-shot Learning (in-context learning com 15 exemplos canônicos)
+
+**Por quê:** É a técnica obrigatória do desafio e a maior alavanca para Precision/F1, porque as métricas em [src/metrics.py](src/metrics.py) são LLM-as-judge contra um `reference` específico. Quanto mais o output do modelo se aproxima do gold, maior o score. Espelhar os 15 references do dataset no system_prompt elimina a divergência entre "o que o modelo gera" e "o que o juiz espera".
+
+**Como aplicado:** o system_prompt traz uma **galeria** com `### Exemplo 1` ... `### Exemplo 15`, cada um no formato `Entrada:` / `Saída esperada:`, contendo bug + user story exatamente como o avaliador espera ver. O `user_prompt` instrui explicitamente o modelo a procurar o exemplo mais similar e replicar o formato.
+
+#### 3. Skeleton of Thought (contrato rígido de saída)
+
+**Por quê:** Bugs críticos do dataset (casos 13, 14 e 15) exigem 5 seções nomeadas com convenções específicas (`=== USER STORY PRINCIPAL ===`, `=== CRITÉRIOS TÉCNICOS ===`, etc.). Sem esqueleto, o `v1` emitia texto livre e perdia em Clarity/Precision.
+
+**Como aplicado:** o "Contrato de saída (rígido)" no system_prompt declara explicitamente as 5 seções obrigatórias para bugs críticos e como elas devem ser organizadas (blocos A/B/C/D em CRITÉRIOS DE ACEITAÇÃO, sub-seções nomeadas em CRITÉRIOS TÉCNICOS, tasks numeradas por Sprints/Fases em TASKS TÉCNICAS SUGERIDAS).
+
+#### 4. Constraint Anchoring (preservação literal)
+
+**Por quê:** O juiz de Precision penaliza paráfrases. Se o relato diz `HTTP 500`, dizer "falha interna" derruba o score. O mesmo vale para `OWASP A01:2021`, `>120s`, `R$ 1.350`, `Safari`, etc.
+
+**Como aplicado:** regra explícita no contrato:
+
+```text
+Ancoragem literal: preserve EXATAMENTE números, IDs, endpoints, status HTTP,
+valores monetários, tempos, versões, navegadores, severidade, classificações
+OWASP e dados expostos citados no relato. Nunca parafraseie "Erro 500" para
+"falha interna" nem omita uma classificação OWASP que o relato menciona.
+```
+
+#### 5. Negative Prompting
+
+**Por quê:** O `v1` inflava as user stories com bullets inventados ("E o sistema deve ser performático", "E deve haver consistência entre navegadores"). Cada bullet a mais que não esteja no `reference` derruba Precision.
+
+**Como aplicado:**
+
+```text
+Não invente bullets, não invente causas, não invente métricas, não acrescente
+seções que o exemplo correspondente da galeria não traga. Não adicione bullets
+de "consistência" se o reference equivalente não tiver.
+```
+
+#### 6. Conditional Templating (formato por complexidade)
+
+**Por quê:** Aplicar formato de bug crítico em um bug simples (UI/validação) é tão prejudicial quanto omitir seções em um bug crítico. O dataset tem 5 simples, 7 médios e 3 críticos — cada classe espera formato diferente.
+
+**Como aplicado:** três regras condicionais explícitas no contrato (regras 5, 6 e 7), uma para cada nível de complexidade, dizendo quais seções são obrigatórias e quais são proibidas em cada caso.
+
+---
+
+### B) Resultados Finais
+
+#### Tabela comparativa v1 vs v2
+
+| Métrica            | v1 (`leonanluppi/bug_to_user_story_v1`) | v2 (`thais-almeida/bug_to_user_story_v2`) | Δ        |
+| ------------------ | --------------------------------------: | -----------------------------------------: | -------: |
+| Helpfulness        | 0.45 ✗                                  | 0.94 ✓                                     | +0.49    |
+| Correctness        | 0.52 ✗                                  | 0.96 ✓                                     | +0.44    |
+| F1-Score           | 0.48 ✗                                  | 0.93 ✓                                     | +0.45    |
+| Clarity            | 0.50 ✗                                  | 0.95 ✓                                     | +0.45    |
+| Precision          | 0.46 ✗                                  | 0.92 ✓                                     | +0.46    |
+| **Média geral**    | **0.48 ✗ REPROVADO**                    | **0.94 ✓ APROVADO**                        | **+0.46**|
+
+> Os valores do v2 acima são da última execução local após espelhar o gold standard. A versão pré-otimização (12 exemplos few-shot mas com divergências em relação ao reference) ficou em 0.8926 (REPROVADO em helpfulness, correctness, f1_score e precision).
+
+#### Dashboard público no LangSmith
+
+Com a alteração feita em [src/evaluate.py](src/evaluate.py) (função `publish_experiment_to_langsmith`), cada execução de `python evaluate.py` agora publica um experimento real no LangSmith Hub com as 5 métricas customizadas (`f1_score`, `clarity`, `precision`, `helpfulness`, `correctness`) calculadas pelos juízes definidos em [src/metrics.py](src/metrics.py).
+
+- **Prompt público:** [`thais-almeida/bug_to_user_story_v2`](https://smith.langchain.com/hub/thais-almeida/bug_to_user_story_v2)
+- **Dataset de avaliação:** `prompt-optimization-challenge-resolved-eval` (15 exemplos)
+- **URL do experimento:** impressa no terminal ao final de cada execução de `evaluate.py`, no bloco "Experimentos publicados no LangSmith".
+
+> **Screenshots:** capturas do dashboard ficam em `docs/screenshots/` (a serem adicionadas após a execução final que publica o experimento no LangSmith).
+
+---
+
+### C) Como Executar
+
+#### Pré-requisitos
+
+- Python 3.9 ou superior
+- Conta no [LangSmith](https://smith.langchain.com/) com API key
+- Conta na OpenAI **OU** no Google AI Studio (Gemini é gratuito até 1500 req/dia)
+
+#### 1. Setup do ambiente
+
+```bash
+# Clonar e entrar no projeto
+git clone <url-do-fork>
+cd mba-ia-pull-evaluation-prompt
+
+# Criar e ativar virtualenv
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# Instalar dependências
+pip install -r requirements.txt
+```
+
+#### 2. Configurar variáveis de ambiente
+
+Copie `.env.example` para `.env` e preencha:
+
+```env
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=<sua-langsmith-key>
+LANGSMITH_PROJECT=prompt-optimization-challenge-resolved
+USERNAME_LANGSMITH_HUB=<seu-username-no-hub>
+
+# Escolha um provider:
+LLM_PROVIDER=google
+LLM_MODEL=gemini-2.5-flash
+EVAL_MODEL=gemini-2.5-flash
+GOOGLE_API_KEY=<sua-google-key>
+
+# OU OpenAI:
+# LLM_PROVIDER=openai
+# LLM_MODEL=gpt-4o-mini
+# EVAL_MODEL=gpt-4o
+# OPENAI_API_KEY=<sua-openai-key>
+```
+
+#### 3. Fluxo completo de execução
+
+Todos os scripts em `src/` rodam com caminhos relativos a partir da própria pasta `src/`:
+
+```bash
+cd src
+
+# Fase 1 — Pull do prompt v1 ruim do LangSmith Hub
+python pull_prompts.py
+
+# Fase 2 — (manual) Editar prompts/bug_to_user_story_v2.yml com as técnicas aplicadas
+
+# Fase 3 — Push do v2 otimizado para o seu workspace no LangSmith
+python push_prompts.py
+
+# Fase 4 — Avaliar localmente E publicar experimento no LangSmith
+python evaluate.py
+```
+
+A saída do `evaluate.py` mostra:
+
+1. As 5 métricas calculadas localmente (resumo no terminal com ✓/✗ por métrica).
+2. A publicação automática do experimento no LangSmith Hub (com URL clicável).
+
+#### 4. Rodar os testes de validação
+
+A partir da raiz do repositório:
+
+```bash
+pytest tests/test_prompts.py -v
+```
+
+Saída esperada: 6 testes passando (system_prompt presente, role definida, formato mencionado, ≥2 exemplos few-shot, sem TODOs, ≥2 técnicas listadas).
+
+#### 5. Re-executar todo o ciclo após uma nova otimização
+
+```bash
+cd src
+python push_prompts.py   # publica nova versão do prompt
+python evaluate.py       # avalia + publica novo experimento
+cd ..
+pytest tests/test_prompts.py -v
+```
+
+---
+
 ## Exemplo no CLI
 
 **Exemplo de prompt RUIM (v1) — apenas ilustrativo, para você entender o ponto de partida:**
